@@ -1,0 +1,26 @@
+# Directories
+_bkp/
+Presentations/
+Parts/
+Paper/_bkp/
+Paper/_Cover Letter/
+Paper/_Submissions/
+Paper/CCN_Mattar&Daw/
+Paper/RLDM2017_Mattar&Daw/
+
+# Data files
+*.mat
+
+# Images
+*.ai
+*.pdf
+*.eps
+*.svg
+*.png
+*.jpg
+
+# OSX / *nix default autosave extension
+*.m~
+
+# Compiled MEX binaries (all platforms)
+*.mex*
