@@ -9,32 +9,27 @@ params.gamma            = 0.9; % discount factor
 params.alpha            = 1.0; % learning rate for real experience (non-bayesian)
 params.lambda           = 0; % eligibility trace parameter
 params.TLearnRate       = 0.9; % learning rate for the transition matrix (0=uniform; 1=only last)
-
 params.actPolicy        = 'softmax'; % Choose 'e_greedy' or 'softmax'
 params.softmaxInvT      = 5; % soft-max inverse temperature temperature
 params.epsilon          = 0.05; % probability of a random action (epsilon-greedy)
-
 params.preExplore       = true; % Let the agent explore the maze (without rewards) to learn transition model
 params.add_goal2start   = true; % Include a transition from goal to start in transition matrix -- this allows Need-term to wrap around
 
 
-%% DEFINE PLANNING PARAMETERS
-params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)
+%% PLANNING PARAMETERS
+params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as planning beats the opportunity cost)
+params.EVMthresh        = 0; % minimum EVM so that planning is performed (use Inf if wish to use opportunity cost)
 
-% n-step backups, explore
+% Parameters for n-step backups
 params.expandFurther    = true; % Expand the last backup further
-params.tieBreak         = 'rand'; % How to break ties on EVM (choose between 'min', 'max', or 'rand');
-params.baselineGain     = 1e-8; % Gain is set to at least this value (interpreted as "information gain")
-
-% n-step backups, no need to explore
-params.planOnlyAtGorS   = true; % boolean variable indicating if planning should happen only if the agent is at the start or goal state
 params.planPolicy       = 'softmax'; % Choose 'thompson_sampling' or 'e_greedy' or 'softmax'
 params.updIntermStates  = true; % Update intermediate states when performing n-step backup
 
 % Other planning parameters
+params.planOnlyAtGorS   = true; % boolean variable indicating if planning should happen only if the agent is at the start or goal state
+params.baselineGain     = 1e-8; % Gain is set to at least this value (interpreted as "information gain")
+params.tieBreak         = 'rand'; % How to break ties on EVM (choose between 'min', 'max', or 'rand');
 params.onlineVSoffline  = 'online'; % Choose 'online' or 'offline' (e.g. sleep) to determine what to use as the need-term
-params.EVMthresh        = 0; % minimum EVM so that planning is performed (use Inf if wish to use opportunity cost)
-%params.minGain          = 1e-10; % replay must have at least this Gain (to avoid precision errors); if gain is lower than this value, it is set to zero
 params.remove_samestate = true; % Remove actions whose consequences lead to same state (e.g. hitting the wall)
 params.allowLoops       = false; % Allow planning trajectories that return to a location appearing previously in the plan
 params.copyQinGainCalc  = false; % Copy Q-value on gain calculation (i.e., LR=1.0)

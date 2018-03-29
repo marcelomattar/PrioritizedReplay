@@ -28,10 +28,10 @@ params.expandFurther    = true; % Expand the last backup further
 params.EVMdivideByN     = false; % Divide the n-step EVM by the number of steps necessary to complete
 params.baselineGain     = 1e-8; % Gain is set to at least this value (interpreted as "information gain")
 
-params.PLOT_STEPS       = true; % Plot each step of real experience
-params.PLOT_Qvals       = true; % Plot Q-values
-params.PLOT_PLANS       = true; % Plot each planning step
-params.PLOT_EVM         = true; % Plot need and gain
+params.PLOT_STEPS       = false; % Plot each step of real experience
+params.PLOT_Qvals       = false; % Plot Q-values
+params.PLOT_PLANS       = false; % Plot each planning step
+params.PLOT_EVM         = false; % Plot need and gain
 
 saveStr = input('Do you want to produce figures (y/n)? ','s');
 if strcmp(saveStr,'y')

@@ -337,13 +337,11 @@ for tsi=1:params.MAX_N_STEPS
     end
     
     
-    
     %% MOVE AGENT TO NEXT STATE
     st = stp1; sti = stp1i;
     
     
     %% COMPLETE STEP
-    
     if ismember(st,params.s_end,'rows') % Agent is at a terminal state
         if params.s_start_rand
             % Pick next start state at random
