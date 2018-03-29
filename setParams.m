@@ -23,9 +23,6 @@ params.nPlan            = 20; % number of steps to do in planning (set to zero i
 
 % n-step backups, explore
 params.expandFurther    = true; % Expand the last backup further
-params.nStepForAll      = false; % boolean variable indicating whether n-step planning is to be done for all states or only for current
-params.nSteps           = 1; % Number of planning steps to evaluate at once (i.e., not iteratively)
-params.EVMdivideByN     = false; % Divide the n-step EVM by the number of steps necessary to complete
 params.tieBreak         = 'rand'; % How to break ties on EVM (choose between 'min', 'max', or 'rand');
 params.baselineGain     = 1e-8; % Gain is set to at least this value (interpreted as "information gain")
 

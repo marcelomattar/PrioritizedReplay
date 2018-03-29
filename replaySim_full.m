@@ -181,8 +181,12 @@ for tsi=1:params.MAX_N_STEPS
             planExp = planExp(~(planExp(:,1)==planExp(:,4)),:);
         end
 
-        % Expand previous backup with one extra action
+        % Create auxiliar variables
+        nSteps = ones(size(planExp,1),1); % nSteps is used to discount the value of the resulting state
         nStepExps = num2cell(planExp,2); % nStepExps hold all steps of any n-step trajectory
+        steps2complete = ones(size(planExp,1),1); % steps2complete is the number of planning steps requires to complete this backup (it is greater than one only for n-step backups, not for expanded backups)
+        
+        % Expand previous backup with one extra action
         if and(params.expandFurther,size(planning_backups,1)>0)
             sn=planning_backups(end,4); % Final state reached in the last planning step
             probs = pAct(Q(sn,:),params.planPolicy,params);
@@ -203,10 +207,50 @@ for tsi=1:params.MAX_N_STEPS
                 r = params.gamma.^(0:(n-1)) * seqUpdated(:,3); % ACCUMULATED (discounted) reward
                 
                 planExp = [planExp; [s,a,r,snp1]]; %#ok<AGROW> % Add to planExp for evaluation
+                nSteps = [nSteps;n]; %#ok<AGROW> % nSteps is used to discount the value of the resulting state
+                steps2complete = [steps2complete;1]; %#ok<AGROW> % This backup takes only 1 step to complete (as opposed to an n-step backup)
                 nStepExps{numel(nStepExps)+1} = seqUpdated; % Notice that rew=rn here (only considers reward from this step)
             end
         end
-        nSteps = cellfun('size',nStepExps,1); % nSteps is used to discount the value of the resulting state
+        
+        % Create a list of n-step backups
+        if params.nSteps>1
+            for s=1:nStates
+                if or(params.nStepForAll,sti==s)
+                    for a=1:nActions
+                        % So, right now we're creating an n-step trajectory starting at (s,a)
+                        seqSoFar = [s a expLast_rew(s,a) expLast_stp1(s,a)];
+                        if and(s~=expLast_stp1(s,a),~isnan(expLast_stp1(s,a)))
+                            for n=2:params.nSteps
+                                sn = seqSoFar(end,4);
+                                probs = pAct(Q(sn,:),params.planPolicy,params);
+                                an = find(rand > [0 cumsum(probs)],1,'last'); % Select action to append using the same action selection policy used in real experience
+                                snp1 = expLast_stp1(sn,an); % Resulting state from taking action an in state sn
+                                rn = expLast_rew(sn,an); % Reward received on this step only
+                                next_step_is_nan = or(isnan(expLast_stp1(sn,an)),isnan(expLast_rew(sn,an))); % Check whether the retrieved rew and stp1 are NaN
+                                next_step_is_repeated = ismember(snp1,[seqSoFar(:,1);seqSoFar(:,4)]); % Check whether a loop is formed
+                                if and(~next_step_is_nan  ,  or(params.allowLoops,~next_step_is_repeated)) % If loops are not allowed and next state is repeated, don't expand this backup
+                                    seqSoFar = [seqSoFar;[sn an rn snp1]]; % Add one row to seqUpdated (i.e., append one transition). Notice that seqUpdated has many rows, one for each appended step
+                                    r = params.gamma.^(0:(n-1)) * seqSoFar(:,3); % ACCUMULATED (discounted) reward
+                                    planExp = [planExp; [s,a,r,snp1]]; %#ok<AGROW> % Add to planExp for evaluation
+                                    nSteps = [nSteps;n]; %#ok<AGROW> % nSteps is used to discount the value of the resulting state
+                                    steps2complete = [steps2complete;n]; % IMPORTANT: This backup takes only n steps to complete!!!
+                                    nStepExps{numel(nStepExps)+1} = seqSoFar; % Notice that rew=rn here (only considers reward from this step)
+                                else
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        % Remove entries that require more steps than are available (essential)
+        planExp = planExp(steps2complete<=(params.nPlan+1-p),:);
+        nStepExps = nStepExps(steps2complete<=(params.nPlan+1-p),:);
+        nSteps = nSteps(steps2complete<=(params.nPlan+1-p),:);
+        steps2complete = steps2complete(steps2complete<=(params.nPlan+1-p),:);
         
         % Gain term
         gain = gainTerm(Q,nStepExps,params); % Considers the gain of updating planExp(:,[1,2]) with info from planExp(:,[3,4])
@@ -223,7 +267,13 @@ for tsi=1:params.MAX_N_STEPS
         % Expected value of memories
         EVM = nan(size(nStepExps));
         for i=1:numel(nStepExps)
-            EVM(i) = sum(need{i}(end) .* max(gain{i},params.baselineGain)); % Use the need from the last (appended) state
+            if params.EVMdivideByN % Divide EVM by the number of steps in the n-step trajectory
+                EVM(i) = mean(need{i} .* max(gain{i},params.baselineGain));
+            else
+                EVM(i) = sum(need{i}(end) .* max(gain{i},params.baselineGain)); % Use the need from the last (appended) state
+                %EVM(i) = sum(need{i}(1) .* max(gain{i},params.baselineGain)); % Use the need from the first (start) state
+                %EVM(i) = sum(need{i} .* max(gain{i},params.baselineGain)); % Use the need from each intermediate state
+            end
         end
         
         if params.PLOT_EVM && (double(rew~=0)+numEpisodes>=params.PLOT_wait)
@@ -233,6 +283,7 @@ for tsi=1:params.MAX_N_STEPS
                 for a=1:size(saGain,2)
                     if sum(and(planExp(:,1)==s,planExp(:,2)==a))>0
                         saGain(s,a) = gain{find(and(planExp(:,1)==s,planExp(:,2)==a),1,'first')}; % Plot the gain term for the first planExp entry for this (s,a)
+                        %saGain(s,a) = 1; % Plot the gain term for the first planExp entry for this (s,a)
                     end
                 end
             end
@@ -274,7 +325,7 @@ for tsi=1:params.MAX_N_STEPS
             if params.PLOT_PLANS && (double(rew>0)+numEpisodes>=params.PLOT_wait)
                 figure(1); clf;
                 highlight = zeros(size(Q(:)));
-                if nSteps(maxEVM_idx)>1 % Highlight extended trace
+                if nSteps(maxEVM_idx)>1 && steps2complete(maxEVM_idx)==1 % Highlight extended trace
                     highlight(sub2ind(size(Q),nStepExps{maxEVM_idx}(:,1),nStepExps{maxEVM_idx}(:,2))) = 1;
                 else % Highlight only the first action from the trace
                     highlight(sub2ind(size(Q),planExp(maxEVM_idx,1),planExp(maxEVM_idx,2))) = 1;
@@ -285,6 +336,16 @@ for tsi=1:params.MAX_N_STEPS
                     plotMazeWithArrows(st,max(Q,[],2),nan(size(Q(:))),params,'b2r(-1,1)','b2r(-1,1)',highlight,rew)
                 end
                 set(gcf,'Position',[1,535,560,420])
+                
+                for n=2:steps2complete(maxEVM_idx)
+                    highlight(sub2ind(size(Q),nStepExps{maxEVM_idx}(n,1),nStepExps{maxEVM_idx}(n,2))) = 1;
+                    if params.PLOT_Qvals
+                        plotMazeWithArrows(st,max(Q,[],2),min(Q(:),params.rewMag),params,'b2r(-1,1)','b2r(-1,1)',highlight)
+                    else
+                        plotMazeWithArrows(st,max(Q,[],2),nan(size(Q(:))),params,'b2r(-1,1)','b2r(-1,1)',highlight)
+                    end
+                    set(gcf,'Position',[1,535,560,420])
+                end
             end
             
             % Retrieve information from this experience
@@ -292,7 +353,7 @@ for tsi=1:params.MAX_N_STEPS
             a_plan = planExp(maxEVM_idx,2);
             r_plan = planExp(maxEVM_idx,3); % ACCUMULATED (discounted) reward collected through the trajectory
             stp1_plan = planExp(maxEVM_idx,4);
-            n_plan = nSteps(maxEVM_idx); % Length of the trajectory being updated
+            n_plan = nSteps(maxEVM_idx);
             
             % Update Q-value of the first action
             Qtarget = r_plan + (params.gamma^n_plan)*max(Q(stp1_plan,:));
@@ -329,8 +390,16 @@ for tsi=1:params.MAX_N_STEPS
             %backupsEVM = [backupsEVM EVM(maxEVM_idx)]; % List of EVM for backups executed
             %backupsQvals = [backupsQvals Q(:)]; % Existing Q-values upon completion of this step
             %backupsSAGain = [backupsSAGain saGain(:)]; % List of gain terms for all actions at each replay step
-            planning_backups = [planning_backups; [nStepExps{maxEVM_idx}(end,1:4) nSteps(maxEVM_idx,1)]];
-            p = p + 1; % Increment planning counter
+            if nSteps(maxEVM_idx)==1
+                planning_backups = [planning_backups; [planExp(maxEVM_idx,1:4) nSteps(maxEVM_idx,1)]];
+            else
+                if steps2complete(maxEVM_idx)==1
+                    planning_backups = [planning_backups; [nStepExps{maxEVM_idx}(end,1:4) nSteps(maxEVM_idx,1)]];
+                else
+                    planning_backups = [planning_backups; [nStepExps{maxEVM_idx} (1:steps2complete(maxEVM_idx))']];
+                end
+            end
+            p = p + steps2complete(maxEVM_idx);
         else
             break
         end
