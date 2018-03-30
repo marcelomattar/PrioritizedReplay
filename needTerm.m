@@ -1,6 +1,6 @@
-function [need,SR_or_SD] = needTerm(sti,T,nStepExps,params)
+function [need,SR_or_SD] = needTerm(sti,T,planExp,params)
 
-need = cell(1,numel(nStepExps));
+need = cell(1,numel(planExp));
 switch params.onlineVSoffline
     case 'online' % Calculate the successor representation
         % Calculate Successor Representation
@@ -16,8 +16,8 @@ switch params.onlineVSoffline
 end
 
 % Calculate need-term for each experience in nStepExps
-for i=1:numel(nStepExps)
-    thisExp = nStepExps{i};
+for i=1:numel(planExp)
+    thisExp = planExp{i};
     need{i} = nan(1,size(thisExp,1));
     for j=1:size(thisExp,1)
         need{i}(j) = SR_or_SD(thisExp(j,1));

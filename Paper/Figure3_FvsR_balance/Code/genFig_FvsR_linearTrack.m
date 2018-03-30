@@ -6,10 +6,11 @@ params.maze             = zeros(3,10); % zeros correspond to 'visitable' states
 params.maze(2,:)        = 1; % wall
 params.s_start          = [1,1;3,size(params.maze,2)]; % beginning state (in matrix notation)
 params.s_start_rand     = false; % Start at random locations after reaching goal
+
 params.s_end            = [1,size(params.maze,2);3,1]; % goal state (in matrix notation)
-params.rewMag           = 1; % reward magnitude (can be a vector -- e.g. [1 0.1])
-params.rewSTD           = 0.1; % reward Gaussian noise (can be a vector -- e.g. [1 0.1])
-params.probNoReward     = 0; % probability of receiving no reward
+params.rewMag           = 1; % reward magnitude (rows: locations; columns: values)
+params.rewSTD           = 0.1; % reward Gaussian noise (rows: locations; columns: values)
+params.rewProb          = 1; % probability of receiving each reward (columns: values)
 
 %% OVERWRITE PARAMETERS
 params.N_SIMULATIONS    = 10; % number of times to run the simulation
@@ -23,13 +24,12 @@ params.alpha            = 1.0; % learning rate for real experience (non-bayesian
 
 params.tieBreak         = 'rand'; % How to break ties on EVM (choose between 'min', 'max', or 'rand');
 params.expandFurther    = true; % Expand the last backup further
-params.EVMdivideByN     = false; % Divide the n-step EVM by the number of steps necessary to complete
 params.baselineGain     = 1e-8; % Gain is set to at least this value (interpreted as "information gain")
 
-params.PLOT_STEPS       = false; % Plot each step of real experience
-params.PLOT_Qvals       = false; % Plot Q-values
-params.PLOT_PLANS       = false; % Plot each planning step
-params.PLOT_EVM         = false; % Plot need and gain
+params.PLOT_STEPS       = true; % Plot each step of real experience
+params.PLOT_Qvals       = true; % Plot Q-values
+params.PLOT_PLANS       = true; % Plot each planning step
+params.PLOT_EVM         = true; % Plot need and gain
 
 saveStr = input('Do you want to produce figures (y/n)? ','s');
 if strcmp(saveStr,'y')
@@ -193,9 +193,8 @@ grid on
 
 
 %% EXPORT FIGURE
-%if saveBool
-if 0
-    %save genFig_FvsR_linearTrack.mat
+if saveBool
+    save genFig_FvsR_linearTrack.mat
 
     % Set clipping off
     set(gca, 'Clipping', 'off');

@@ -1,7 +1,6 @@
 %% SIMULATION PARAMETERS
-%params.N_SIMULATIONS    = 10; % number of times to run the simulation
 params.MAX_N_STEPS      = 1e5; % maximum number of steps to simulate
-%params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max)
+params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max)
 
 
 %% MDP PARAMETERS
@@ -14,6 +13,7 @@ params.softmaxInvT      = 5; % soft-max inverse temperature temperature
 params.epsilon          = 0.05; % probability of a random action (epsilon-greedy)
 params.preExplore       = true; % Let the agent explore the maze (without rewards) to learn transition model
 params.add_goal2start   = true; % Include a transition from goal to start in transition matrix -- this allows Need-term to wrap around
+params.rewOnlyPositive  = true; % When drawing reward samples, use only 
 
 
 %% PLANNING PARAMETERS
@@ -23,7 +23,6 @@ params.EVMthresh        = 0; % minimum EVM so that planning is performed (use In
 % Parameters for n-step backups
 params.expandFurther    = true; % Expand the last backup further
 params.planPolicy       = 'softmax'; % Choose 'thompson_sampling' or 'e_greedy' or 'softmax'
-params.updIntermStates  = true; % Update intermediate states when performing n-step backup
 
 % Other planning parameters
 params.planOnlyAtGorS   = true; % boolean variable indicating if planning should happen only if the agent is at the start or goal state

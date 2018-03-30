@@ -8,12 +8,12 @@ params.s_start          = [3,1]; % beginning state (in matrix notation)
 params.s_start_rand     = false; % Start at random locations after reaching goal
 
 %params.s_end            = [1,9;6,9]; % goal state (in matrix notation)
-%params.rewMag           = [1 0.1]; % reward magnitude (can be a vector -- e.g. [1 0.1])
-%params.rewSTD           = [0.1 0.1]; % reward Gaussian noise (can be a vector -- e.g. [1 0.1])
+%params.rewMag           = [1 0.5; 0.1 0.05]; % reward magnitude (rows: locations; columns: values)
+%params.rewSTD           = [1 0.5; 0.1 0.05]; % reward Gaussian noise (rows: locations; columns: values)
 params.s_end            = [1,9]; % goal state (in matrix notation)
-params.rewMag           = 1; % reward magnitude (can be a vector -- e.g. [1 0.1])
-params.rewSTD           = 0.1; % reward Gaussian noise (can be a vector -- e.g. [1 0.1])
-params.probNoReward     = 0; % probability of receiving no reward
+params.rewMag           = 1; % reward magnitude (rows: locations; columns: values)
+params.rewSTD           = 0.1; % reward Gaussian noise (rows: locations; columns: values)
+params.rewProb          = 1; % probability of receiving each reward (columns: values)
 
 
 %% PLOTTING SETTINGS

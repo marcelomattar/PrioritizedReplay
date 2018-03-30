@@ -6,10 +6,13 @@ params.maze             = zeros(6,9); % zeros correspond to 'visitable' states
 params.maze(2:4,3)      = 1; % wall
 params.maze(1:3,8)      = 1; % wall
 params.maze(5,6)        = 1; % wall
-%params.s_end            = [1,9;6,9]; % goal state (in matrix notation)
-params.s_end            = [1,9]; % goal state (in matrix notation)
 params.s_start          = [3,1]; % beginning state (in matrix notation)
-params.s_start_rand     = true; % Start at random locations after reaching goal
+params.s_start_rand     = false; % Start at random locations after reaching goal
+
+params.s_end            = [1,9]; % goal state (in matrix notation)
+params.rewMag           = [1 0]; % reward magnitude (rows: locations; columns: values)
+params.rewSTD           = [0.1 0]; % reward Gaussian noise (rows: locations; columns: values)
+params.rewProb          = [0.8 0.2]; % probability of receiving each reward (columns: values)
 
 %% OVERWRITE PARAMETERS
 params.N_SIMULATIONS    = 100; % number of times to run the simulation

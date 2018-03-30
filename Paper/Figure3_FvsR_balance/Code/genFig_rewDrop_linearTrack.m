@@ -4,12 +4,16 @@ clear;
 setParams;
 params.maze             = zeros(3,10); % zeros correspond to 'visitable' states
 params.maze(2,:)        = 1; % wall
-params.s_end            = [1,size(params.maze,2);3,1]; % goal state (in matrix notation)
 params.s_start          = [1,1;3,size(params.maze,2)]; % beginning state (in matrix notation)
 params.s_start_rand     = false; % Start at random locations after reaching goal
 
+params.s_end            = [1,size(params.maze,2);3,1]; % goal state (in matrix notation)
+params.rewMag           = [1 0]; % reward magnitude (rows: locations; columns: values)
+params.rewSTD           = [0.1 0]; % reward Gaussian noise (rows: locations; columns: values)
+params.rewProb          = [0.5 0.5]; % probability of receiving each reward (columns: values)
+
 %% OVERWRITE PARAMETERS
-params.N_SIMULATIONS    = 100; % number of times to run the simulation
+params.N_SIMULATIONS    = 10; % number of times to run the simulation
 params.MAX_N_STEPS      = 1e5; % maximum number of steps to simulate
 params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max) -> Choose between 20 and 100
 params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)

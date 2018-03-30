@@ -52,21 +52,35 @@ stp1i = sub2ind( [sideII,sideJJ], stp1(1), stp1(2) );
 %% COLLECT REWARD
 
 if ismember(stp1,params.s_end,'rows')
-    if numel(params.rewMag) == size(params.s_end,2) % if there's a different reward for each goal state
-        % Determine which reward has been encountered in stp1
-        rew = params.rewMag(ismember(params.s_end,stp1,'rows'));
-        % Add noise
-        rew = rew + randn*params.rewSTD(ismember(params.s_end,stp1,'rows'));
-    else % if there's only one reward for all goal states
-        rew = params.rewMag; 
-        % Add noise
-        rew = rew + randn * params.rewSTD;
+    if size(params.rewMag,1) == size(params.s_end,1) % if there's a different reward for each goal state
+        thisRew = params.rewMag(ismember(params.s_end,stp1,'rows'),:);
+    else
+        thisRew = params.rewMag(1,:);
     end
-    rew = max(0,rew); % Make sure reward is positive (negative rewards are weird)
-    % Set it to zero with probability params.probNoReward
-    if rand<params.probNoReward
-        rew = 0; % May change this value
+    if size(params.rewSTD,1) == size(params.s_end,1) % if there's a different std for each goal state
+        thisSTD = params.rewSTD(ismember(params.s_end,stp1,'rows'),:);
+    else
+        thisSTD = params.rewSTD(1,:);
     end
+    % Draw a sample from the reward magnutude list
+    if size(thisRew,2) == size(params.rewProb,2)
+        thisProb = params.rewProb/sum(params.rewProb);
+        rewIdx = find(rand > [0 cumsum(thisProb)],1,'last'); % Select reward
+        thisRew = thisRew(rewIdx);
+    else
+        rewIdx = 1; % If the probabilities were not correctly specified, use the first column only
+        thisRew = thisRew(1);
+    end
+    % Draw a sample from the reward std list
+    if size(thisSTD,2) == size(params.rewProb,2)
+        thisSTD = thisSTD(rewIdx);
+    else
+        thisSTD = thisSTD(1);
+    end
+    
+    % Compute the final reward
+    rew = thisRew + randn*thisSTD;
+    %rew = max(0,rew); % Make sure reward is positive (negative rewards are weird)
 else
 	rew = 0;
 end
