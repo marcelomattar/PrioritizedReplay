@@ -17,19 +17,22 @@ params.N_SIMULATIONS    = 10; % number of times to run the simulation
 params.MAX_N_STEPS      = 1e5; % maximum number of steps to simulate
 params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max) -> Choose between 20 and 100
 params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)
+params.onVSoffPolicy    = 'off-policy'; % Choose 'off-policy' (default) or 'on-policy' for computing Q-values (and gain)
 
-params.softmaxInvT      = 5; % soft-max inverse temperature temperature
+params.softmaxInvT      = 10; % soft-max inverse temperature temperature
 params.gamma            = 0.9; % discount factor
 params.alpha            = 1.0; % learning rate for real experience (non-bayesian)
+params.rewSTD           = 0.1; % reward Gaussian noise (rows: locations; columns: values)
 
 params.tieBreak         = 'rand'; % How to break ties on EVM (choose between 'min', 'max', or 'rand');
 params.expandFurther    = true; % Expand the last backup further
-params.baselineGain     = 1e-8; % Gain is set to at least this value (interpreted as "information gain")
+params.baselineGain     = 1e-10; % Gain is set to at least this value (interpreted as "information gain")
 
-params.PLOT_STEPS       = true; % Plot each step of real experience
-params.PLOT_Qvals       = true; % Plot Q-values
-params.PLOT_PLANS       = true; % Plot each planning step
-params.PLOT_EVM         = true; % Plot need and gain
+params.PLOT_STEPS       = false; % Plot each step of real experience
+params.PLOT_Qvals       = false; % Plot Q-values
+params.PLOT_PLANS       = false; % Plot each planning step
+params.PLOT_EVM         = false; % Plot need and gain
+params.PLOT_wait        = 11 ; % Number of full episodes completed before plotting
 
 saveStr = input('Do you want to produce figures (y/n)? ','s');
 if strcmp(saveStr,'y')
@@ -187,7 +190,8 @@ f1(1).LineWidth=1;
 f1(2).FaceColor=[0 0 0]; % Replay bar color
 f1(2).LineWidth=1;
 set(f1(1).Parent,'XTickLabel',{'Forward correlated','Reverse correlated'});
-ylim([0 1]);
+ymax=ceil(max(reshape([nanmean(preplayF) nanmean(replayF) ; nanmean(preplayR) nanmean(replayR)],[],1)));
+ylim([0 ymax]);
 ylabel('Events/Lap');
 grid on
 

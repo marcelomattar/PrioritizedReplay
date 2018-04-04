@@ -23,7 +23,6 @@ switch actPolicy
                 probs(s,Qbest) = (1-params.epsilon)/numel(Qbest);
                 probs(isnan(probs)) = 0;
                 probs = probs + params.epsilon/numel(Qmean(s,:)); % With probability epsilon, pick a random action
-                %probs(s,Qmean(s,:)<max(Qmean(s,:))) = params.epsilon/sum(Qmean(s,:)<max(Qmean(s,:)));
             end
         end
     case 'softmax'

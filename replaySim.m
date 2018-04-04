@@ -72,7 +72,7 @@ end
 T = T./repmat(nansum(T,2),1,size(T,1));
 T(isnan(T)) = 0; % Dividing by zero causes NaNs (i.e., transitions from wall states)
 % Add transitions from goal states to start states
-if params.add_goal2start
+if params.Tgoal2start
     for i=1:size(params.s_end,1) % Loop through each goal state
         if ~params.s_start_rand
             gi = sub2ind(size(params.maze),params.s_end(i,1),params.s_end(i,2)); % goal state index
@@ -143,7 +143,16 @@ for tsi=1:params.MAX_N_STEPS
     
     
     %% UPDATE Q-VALUES (LEARNING)
-    delta = ( rew + params.gamma*max(Q(stp1i,:)) - Q(sti,at) ); % Prediction error (Q-learning)
+    if strcmp(params.onVSoffPolicy,'on-policy')
+        stp1Value = sum(Q(stp1i,:) .* pAct(Q(stp1i,:),params.actPolicy,params)); % Expected SARSA
+        %???: Standard SARSA
+        %probs = pAct(Q(stp1i,:),params.actPolicy,params); % Probability of executing each action
+        %at = find(rand > [0 cumsum(probs)],1,'last'); % Select an action
+        %stp1Value = Q(stp1i,at);
+    else
+        stp1Value = max(Q(stp1i,:)); % Q-learning
+    end
+    delta = ( rew + params.gamma*stp1Value - Q(sti,at) ); % Prediction error (Q-learning)
     eTr(sti,at) = 1; eTr(sti,~ismember(1:nActions,at)) = 0; % Update eligibility trace using replacing traces, http://www.incompleteideas.net/book/ebook/node80.html)
     Q = Q + (params.alpha * eTr) * delta; % TD-learning
     eTr = eTr * params.lambda * params.gamma; % Decay eligibility trace
@@ -191,7 +200,12 @@ for tsi=1:params.MAX_N_STEPS
             seqStart = find(planning_backups(:,5)==1,1,'last'); % Find the last entry in planning_backups with that started an n-step backup
             seqSoFar = planning_backups(seqStart:end,1:4);
             sn=seqSoFar(end,4); % Final state reached in the last planning step
-            probs = pAct(Q(sn,:),params.planPolicy,params);
+            if strcmp(params.onVSoffPolicy,'on-policy')
+                probs = pAct(Q(sn,:),params.planPolicy,params); % Appended experience is sampled on-policy
+            else
+                probs = zeros(size(Q(sn,:)));
+                probs(Q(sn,:)==max(Q(sn,:))) = 1/sum(Q(sn,:)==max(Q(sn,:))); % Appended experience is sampled greedily
+            end
             an = find(rand > [0 cumsum(probs)],1,'last'); % Select action to append using the same action selection policy used in real experience
             snp1 = expLast_stp1(sn,an); % Resulting state from taking action an in state sn
             rn = expLast_rew(sn,an); % Reward received on this step only
@@ -260,7 +274,7 @@ for tsi=1:params.MAX_N_STEPS
             end
             
             % Plot planning steps
-            if params.PLOT_PLANS && (double(rew>0)+numEpisodes>=params.PLOT_wait)
+            if params.PLOT_PLANS && (double(rew~=0)+numEpisodes>=params.PLOT_wait)
                 figure(1); clf;
                 highlight = zeros(size(Q(:)));
                 highlight(sub2ind(size(Q),planExp{maxEVM_idx}(:,1),planExp{maxEVM_idx}(:,2))) = 1; % Highlight extended trace
@@ -276,14 +290,20 @@ for tsi=1:params.MAX_N_STEPS
                 % Retrieve information from this experience
                 s_plan = planExp{maxEVM_idx}(n,1);
                 a_plan = planExp{maxEVM_idx}(n,2);
-                stp1_plan = planExp{maxEVM_idx}(end,4);
+                stp1_plan = planExp{maxEVM_idx}(end,4); % Notice the use of 'end' instead of 'n', meaning that stp1_plan is the final state of the trajectory
                 rewToEnd = planExp{maxEVM_idx}(n:end,3); % Individual rewards from this step to end of trajectory
                 r_plan = (params.gamma.^(0:(length(rewToEnd)-1))) * rewToEnd; % Discounted cumulative reward from this step to end of trajectory
-                n_plan = length(rewToEnd);
-                
-                % Update Q-values of the intermediate actions
-                % Notice that these updates use stp1_plan and atp1_plan, which correspond to the end of the n-step trajectory
-                Qtarget = r_plan + (params.gamma^n_plan)*max(Q(stp1_plan,:));
+                n_plan = length(rewToEnd);        
+                if strcmp(params.onVSoffPolicy,'on-policy')
+                    stp1Value = sum(Q(stp1_plan,:) .* pAct(Q(stp1_plan,:),params.planPolicy,params)); % Expected SARSA(lambda=1), or n-step Expected SARSA
+                    %???: Standard SARSA
+                    %probs = pAct(Q(stp1_plan,:),params.planPolicy,params); % Probability of executing each action
+                    %at = find(rand > [0 cumsum(probs)],1,'last'); % Select an action
+                    %stp1Value = Q(stp1_plan,at);
+                else
+                    stp1Value = max(Q(stp1_plan,:)); % "naive" Q(lambda=1)
+                end
+                Qtarget = r_plan + (params.gamma^n_plan)*stp1Value;
                 if params.copyQinPlanBkps
                     Q(s_plan,a_plan) = Qtarget;
                 else
@@ -325,7 +345,7 @@ for tsi=1:params.MAX_N_STEPS
             stp1i = sub2ind( [sideII,sideJJ], stp1(1), stp1(2) );
         end
         % Update transition matrix and list of experiences
-        if params.add_goal2start
+        if params.Tgoal2start
             targVec = zeros(1,nStates); targVec(stp1i) = 1;
             T(sti,:) = T(sti,:) + params.TLearnRate*(targVec-T(sti,:)); % Shift corresponding row of T towards targVec
             expList(size(expList,1)+1,:) = [sti,nan,nan,stp1i]; % Update list of experiences

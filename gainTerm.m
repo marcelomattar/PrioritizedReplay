@@ -11,7 +11,18 @@ for i=1:numel(planExp)
         % Calculate probabilities BEFORE backup
         pA_pre = pAct(Qmean,params.planPolicy,params); % Probabilities BEFORE backup
         
-        stp1Value = max(Q(thisExp(end,4),:),[],2); % Value of state stp1
+         % Value of state stp1
+        if strcmp(params.onVSoffPolicy,'on-policy')
+            stp1Value = sum(Q(thisExp(end,4),:) .* pAct(Q(thisExp(end,4),:),params.planPolicy,params));
+            %{
+            probs = pAct(Q(thisExp(end,4),:),params.planPolicy,params); % Probability of executing each action
+            at = find(rand > [0 cumsum(probs)],1,'last'); % Select an action
+            stp1Value = Q(thisExp(end,4),at);
+            %}
+        else
+            stp1Value = max(Q(thisExp(end,4),:),[],2);
+        end
+        %stp1Value = max(Q(thisExp(end,4),:),[],2);
         
         actTaken = thisExp(j,2);
         steps2end = size(thisExp,1)-j;

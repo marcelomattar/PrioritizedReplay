@@ -80,7 +80,9 @@ if ismember(stp1,params.s_end,'rows')
     
     % Compute the final reward
     rew = thisRew + randn*thisSTD;
-    %rew = max(0,rew); % Make sure reward is positive (negative rewards are weird)
+    if params.rewOnlyPositive
+        rew = max(0,rew); % Make sure reward+noise is positive (negative rewards are weird)
+    end
 else
 	rew = 0;
 end

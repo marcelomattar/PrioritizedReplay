@@ -11,9 +11,11 @@ params.TLearnRate       = 0.9; % learning rate for the transition matrix (0=unif
 params.actPolicy        = 'softmax'; % Choose 'e_greedy' or 'softmax'
 params.softmaxInvT      = 5; % soft-max inverse temperature temperature
 params.epsilon          = 0.05; % probability of a random action (epsilon-greedy)
+
 params.preExplore       = true; % Let the agent explore the maze (without rewards) to learn transition model
-params.add_goal2start   = true; % Include a transition from goal to start in transition matrix -- this allows Need-term to wrap around
-params.rewOnlyPositive  = true; % When drawing reward samples, use only 
+params.Tgoal2start      = true; % Include a transition from goal to start in transition matrix -- this allows Need-term to wrap around
+params.rewOnlyPositive  = true; % When drawing reward+noise samples, shift negative values to zero
+params.onVSoffPolicy    = 'on-policy'; % ???: Choose 'off-policy' (default) or 'on-policy' learning for updating Q-values (and computing gain)
 
 
 %% PLANNING PARAMETERS
@@ -26,7 +28,7 @@ params.planPolicy       = 'softmax'; % Choose 'thompson_sampling' or 'e_greedy' 
 
 % Other planning parameters
 params.planOnlyAtGorS   = true; % boolean variable indicating if planning should happen only if the agent is at the start or goal state
-params.baselineGain     = 1e-8; % Gain is set to at least this value (interpreted as "information gain")
+params.baselineGain     = 1e-10; % Gain is set to at least this value (interpreted as "information gain")
 params.tieBreak         = 'rand'; % How to break ties on EVM (choose between 'min', 'max', or 'rand');
 params.onlineVSoffline  = 'online'; % Choose 'online' or 'offline' (e.g. sleep) to determine what to use as the need-term
 params.remove_samestate = true; % Remove actions whose consequences lead to same state (e.g. hitting the wall)
