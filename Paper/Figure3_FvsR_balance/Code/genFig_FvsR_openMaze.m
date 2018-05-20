@@ -15,20 +15,19 @@ params.rewSTD           = 0.1; % reward Gaussian noise (rows: locations; columns
 params.rewProb          = 1; % probability of receiving each reward (columns: values)
 
 %% OVERWRITE PARAMETERS
-params.N_SIMULATIONS    = 10; % number of times to run the simulation
+params.N_SIMULATIONS    = 100; % number of times to run the simulation
 params.MAX_N_STEPS      = 1e5; % maximum number of steps to simulate
-params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max) -> Choose between 20 and 100
+params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max)
 params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)
-params.onVSoffPolicy    = 'off-policy'; % Choose 'off-policy' (default) or 'on-policy' for computing Q-values (and gain)
+params.onVSoffPolicy    = 'off-policy'; % Choose 'off-policy' (default, learns Q*) or 'on-policy' (learns Qpi) learning for updating Q-values and computing gain
 
-params.softmaxInvT      = 5; % soft-max inverse temperature temperature
+params.alpha            = 1.0; % learning rate
 params.gamma            = 0.9; % discount factor
-params.alpha            = 1.0; % learning rate for real experience (non-bayesian)
-params.rewSTD           = 0.1; % reward Gaussian noise (rows: locations; columns: values)
-
-params.tieBreak         = 'rand'; % How to break ties on EVM (choose between 'min', 'max', or 'rand');
-params.expandFurther    = true; % Expand the last backup further
-params.baselineGain     = 1e-10; % Gain is set to at least this value (interpreted as "information gain")
+params.softmaxInvT      = 5; % soft-max inverse temperature temperature
+params.tieBreak         = 'min'; % How to break ties on EVM (choose which sequence length is prioritized: 'min', 'max', or 'rand')
+params.setAllGainToOne  = false; % Set the gain term of all items to one (for debugging purposes)
+params.setAllNeedToOne  = true; % Set the need term of all items to one (for debugging purposes)
+params.setAllNeedToZero = false; % Set the need term of all items to zero, except for the current state (for debugging purposes)
 
 params.PLOT_STEPS       = false; % Plot each step of real experience
 params.PLOT_Qvals       = false; % Plot Q-values
@@ -47,7 +46,6 @@ end
 rng(mean('replay'));
 for k=1:params.N_SIMULATIONS
     simData(k) = replaySim(params);
-    %simData(k) = replaySim_old(params);
 end
 
 
@@ -80,18 +78,17 @@ end
 
 for k=1:length(simData)
     fprintf('Simulation #%d\n',k);
-    % Identify candidate replay events
+    % Identify candidate replay events: timepoints in which the number of replayed states is greater than minFracCells,minNumCells
     candidateEvents = find(cellfun('length',simData(k).replay.state)>=max(sum(params.maze(:)==0)*minFracCells,minNumCells));
-    lapNum = [0;simData(k).numEpisodes(1:end-1)] + 1;
-    lapNum_events = lapNum(candidateEvents);
-    agentPos = simData(k).expList(candidateEvents,1);
+    lapNum = [0;simData(k).numEpisodes(1:end-1)] + 1; % episode number for each time point
+    lapNum_events = lapNum(candidateEvents); % episode number for each candidate event
+    agentPos = simData(k).expList(candidateEvents,1); % agent position during each candidate event
     
     for e=1:length(candidateEvents)
-        eventState = simData(k).replay.state{candidateEvents(e)};
-        eventAction = simData(k).replay.action{candidateEvents(e)};
+        eventState = simData(k).replay.state{candidateEvents(e)}; % In a multi-step sequence, simData.replay.state has 1->2 in one row, 2->3 in another row, etc
+        eventAction = simData(k).replay.action{candidateEvents(e)}; % In a multi-step sequence, simData.replay.action has the action taken at each step of the trajectory
         
-        % Identify break points in this event, separating event into
-        % sequences
+        % Identify break points in this event, separating event into sequences
         eventDir = cell(1,length(eventState)-1);
         breakPts = 0; % Save breakpoints that divide contiguous replay events
         for i=1:(length(eventState)-1)
@@ -105,15 +102,15 @@ for k=1:length(simData)
             end
             
             % Find if this is a break point
-            if isempty(eventDir{i})
-                breakPts = [breakPts (i-1)];
+            if isempty(eventDir{i}) % If this transition was neither forward nor backward
+                breakPts = [breakPts (i-1)]; % Then, call this a breakpoint
             elseif i>1
-                if ~strcmp(eventDir{i},eventDir{i-1})
-                    breakPts = [breakPts (i-1)];
+                if ~strcmp(eventDir{i},eventDir{i-1}) % If this transition was forward and the previous was backwards (or vice-versa)
+                    breakPts = [breakPts (i-1)]; % Then, call this a breakpoint
                 end
             end
             if i==(length(eventState)-1)
-                breakPts = [breakPts i];
+                breakPts = [breakPts i]; % Add a breakpoint after the last transition
             end
         end
         
@@ -122,16 +119,16 @@ for k=1:length(simData)
             thisChunk = (breakPts(j)+1):(breakPts(j+1));
             if (length(thisChunk)+1) >= minNumCells
                 % Extract information from this sequential event
-                replayDir = eventDir(thisChunk);
-                replayState = eventState([thisChunk (thisChunk(end)+1)]);
-                replayAction = eventAction([thisChunk (thisChunk(end)+1)]);
+                replayDir = eventDir(thisChunk); % Direction of transition
+                replayState = eventState([thisChunk (thisChunk(end)+1)]); % Start state
+                replayAction = eventAction([thisChunk (thisChunk(end)+1)]); % Action
                 
                 % Assess the significance of this event
                 %allPerms = cell2mat(arrayfun(@(x)randperm(length(replayState)),(1:nPerm)','UniformOutput',0));
                 sigBool = true; %#ok<NASGU>
                 if runPermAnalysis
-                    fracFor = nanmean(strcmp(replayDir,'F'));
-                    fracRev = nanmean(strcmp(replayDir,'R'));
+                    fracFor = nanmean(strcmp(replayDir,'F')); % Fraction of transitions in this chunk whose direction was forward
+                    fracRev = nanmean(strcmp(replayDir,'R')); % Fraction of transitions in this chunk whose direction was reverse
                     disScore = fracFor-fracRev;
                     dirScore_perm = nan(1,nPerm);
                     for p=1:nPerm
@@ -174,7 +171,9 @@ for k=1:length(simData)
     end
 end
 
-preplayF = nansum(forwardCount(:,[1:49 51:54]),2)./params.MAX_N_EPISODES;
+% Compute the number of significant events BEFORE (preplay) and AFTER (replay) an event (which could be larger than 1)
+% PS: Notice that this is not a measure of the percent of episodes with a significant event (which would produce a smaller numbers)
+preplayF = nansum(forwardCount(:,[1:49 51:54]),2)./params.MAX_N_EPISODES; % Any state except for 50
 replayF = nansum(forwardCount(:,50),2)./params.MAX_N_EPISODES;
 preplayR = nansum(reverseCount(:,[1:49 51:54]),2)./params.MAX_N_EPISODES;
 replayR = nansum(reverseCount(:,50),2)./params.MAX_N_EPISODES;
@@ -191,15 +190,15 @@ f1(1).LineWidth=1;
 f1(2).FaceColor=[0 0 0]; % Replay bar color
 f1(2).LineWidth=1;
 set(f1(1).Parent,'XTickLabel',{'Forward correlated','Reverse correlated'});
+ymax=ceil(max(reshape([nanmean(preplayF) nanmean(replayF) ; nanmean(preplayR) nanmean(replayR)],[],1)));
 ylim([0 1]);
 ylabel('Events/Lap');
 grid on
 
 
 %% EXPORT FIGURE
-%if saveBool
-if 0
-    %save genFig_FvsR_openMaze.mat
+if saveBool
+    save genFig_FvsR_openMaze.mat
     
     % Set clipping off
     set(gca, 'Clipping', 'off');

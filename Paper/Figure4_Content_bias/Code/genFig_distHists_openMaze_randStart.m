@@ -10,29 +10,23 @@ else
     params.maze(2:4,3)      = 1; % wall
     params.maze(1:3,8)      = 1; % wall
     params.maze(5,6)        = 1; % wall
-    %params.s_end            = [1,9;6,9]; % goal state (in matrix notation)
-    params.s_end            = [1,9]; % goal state (in matrix notation)
     params.s_start          = [3,1]; % beginning state (in matrix notation)
     params.s_start_rand     = true; % Start at random locations after reaching goal
+    
+    params.s_end            = [1,9]; % goal state (in matrix notation)
+    params.rewMag           = 1; % reward magnitude (rows: locations; columns: values)
+    params.rewSTD           = 0.1; % reward Gaussian noise (rows: locations; columns: values)
+    params.rewProb          = 1; % probability of receiving each reward (columns: values)
     
     %% OVERWRITE PARAMETERS
     params.N_SIMULATIONS    = 100; % number of times to run the simulation
     params.MAX_N_STEPS      = 1e5; % maximum number of steps to simulate
-    params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max) -> Choose between 20 and 100
+    params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max)
     params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)
-    
-    params.setAllGainToOne  = false; % Set the gain term of all items to one (for illustration purposes)
-    params.setAllNeedToOne  = false; % Set the need term of all items to one (for illustration purposes)
-    params.rewSTD           = 0.1; % reward standard deviation (can be a vector -- e.g. [1 0.1])
-    params.softmaxT         = 0.2; % soft-max temperature -> higher means more exploration and, therefore, more reverse replay
-    params.gamma            = 0.90; % discount factor
-    
-    params.updIntermStates  = true; % Update intermediate states when performing n-step backup
-    params.baselineGain     = 1e-10; % Gain is set to at least this value (interpreted as "information gain") -> Use 1e-3 if LR=0.8
-    
-    params.alpha            = 1.0; % learning rate for real experience (non-bayesian)
-    params.copyQinPlanBkps  = false; % Copy the Q-value (mean and variance) on planning backups (i.e., LR=1.0)
-    params.copyQinGainCalc  = true; % Copy the Q-value (mean and variance) on gain calculation (i.e., LR=1.0)
+    params.onVSoffPolicy    = 'off-policy'; % Choose 'off-policy' (default, learns Q*) or 'on-policy' (learns Qpi) learning for updating Q-values and computing gain
+    params.alpha            = 1.0; % learning rate
+    params.gamma            = 0.9; % discount factor
+    params.softmaxInvT      = 5; % soft-max inverse temperature temperature
     
     rng(mean('replay'));
     for k=1:params.N_SIMULATIONS
@@ -351,10 +345,21 @@ rewIdx = sub2ind(size(params.maze),params.s_end(1),params.s_end(2));
 allStates = 1:numel(params.maze);
 validStates = and(~ismember(allStates,wallsIdx),~ismember(allStates,rewIdx));
 
-allDists = dist(validStates,validStates);
-dist2agentProb_null = histc(allDists(:),-0.5:1:15.5);
-dist2agentProb_null = dist2agentProb_null(1:end-1)./sum(dist2agentProb_null);
+% Make list of agent's position during replay
+dist2agentCount_null = zeros(17,1);
+for k=1:length(simData)
+    backupTime = find(cellfun('length',simData(k).replay.state)>0);
+    distCount = nan(numel(backupTime),sum(validStates));
+    for i=1:numel(backupTime)
+        sti = simData(k).expList(backupTime(i),1); % Where the agent was when this backup happened
+        distCount(i,:) = dist(sti,validStates);
+    end
+    dist2agentCount_null = dist2agentCount_null + histc(distCount(:),-0.5:1:15.5);
+end
+% Build null model of distances to agent
+dist2agentProb_null = dist2agentCount_null(1:end-1)./sum(dist2agentCount_null);
 
+% Build null model of distances to reward
 dist2rewProb_null = histc(dist(rewIdx,validStates),-0.5:1:15.5);
 dist2rewProb_null = dist2rewProb_null(1:end-1)./sum(dist2rewProb_null);
 

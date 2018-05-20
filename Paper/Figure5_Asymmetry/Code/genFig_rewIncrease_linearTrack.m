@@ -13,30 +13,19 @@ params.rewSTD           = [0.1 0.1]; % reward Gaussian noise (rows: locations; c
 params.rewProb          = [0.5 0.5]; % probability of receiving each reward (columns: values)
 
 %% OVERWRITE PARAMETERS
-params.N_SIMULATIONS    = 10; % number of times to run the simulation
+params.N_SIMULATIONS    = 1000; % number of times to run the simulation
 params.MAX_N_STEPS      = 1e5; % maximum number of steps to simulate
-params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max) -> Choose between 20 and 100
+params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max)
 params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)
+params.onVSoffPolicy    = 'off-policy'; % Choose 'off-policy' (default, learns Q*) or 'on-policy' (learns Qpi) learning for updating Q-values and computing gain
 
-params.setAllGainToOne  = false; % Set the gain term of all items to one (for illustration purposes)
-params.setAllNeedToOne  = false; % Set the need term of all items to one (for illustration purposes)
-params.rewSTD           = 0.1; % reward standard deviation (can be a vector -- e.g. [1 0.1])
-params.softmaxT         = 0.2; % soft-max temperature -> higher means more exploration and, therefore, more reverse replay
-params.gamma            = 0.90; % discount factor
-
-params.updIntermStates  = true; % Update intermediate states when performing n-step backup
-params.baselineGain     = 1e-10; % Gain is set to at least this value (interpreted as "information gain")
-
-params.alpha            = 1; % learning rate for real experience (non-bayesian)
-params.copyQinPlanBkps  = false; % Copy the Q-value (mean and variance) on planning backups (i.e., LR=1.0)
-params.copyQinGainCalc  = true; % Copy the Q-value (mean and variance) on gain calculation (i.e., LR=1.0)
-
-params.PLOT_STEPS       = false; % Plot each step of real experience
-params.PLOT_Qvals       = false; % Plot Q-values
-params.PLOT_PLANS       = false; % Plot each planning step
-params.PLOT_EVM         = false; % Plot need and gain
-
-params.probNoReward     = 0.5; % probability of receiving no reward
+params.alpha            = 1.0; % learning rate
+params.gamma            = 0.9; % discount factor
+params.softmaxInvT      = 5; % soft-max inverse temperature temperature
+params.tieBreak         = 'min'; % How to break ties on EVM (choose which sequence length is prioritized: 'min', 'max', or 'rand')
+params.setAllGainToOne  = false; % Set the gain term of all items to one (for debugging purposes)
+params.setAllNeedToOne  = false; % Set the need term of all items to one (for debugging purposes)
+params.setAllNeedToZero = false; % Set the need term of all items to zero, except for the current state (for debugging purposes)
 
 saveStr = input('Do you want to produce figures (y/n)? ','s');
 if strcmp(saveStr,'y')
@@ -46,22 +35,11 @@ else
 end
 
 
-%% CHANGE stNac2stp1Nr() TO REFLECT CORRECT REWARDS
-old_stNac2stp1Nr = fileread('../../../stNac2stp1Nr.m');
-new_stNac2stp1Nr = regexprep(old_stNac2stp1Nr,'rew=0; % May change this value','rew=4 + randn * params.rewSTD; display(''Using rew=4'');');
-fid = fopen('../../../stNac2stp1Nr.m', 'w');
-fprintf(fid, '%s', new_stNac2stp1Nr);
-fclose(fid);
-
-
 %% RUN SIMULATION
 rng(mean('replay'));
 for k=1:params.N_SIMULATIONS
     simData(k) = replaySim(params);
 end
-fid = fopen('../../../stNac2stp1Nr.m', 'w');
-fprintf(fid, '%s', old_stNac2stp1Nr);
-fclose(fid);
 
 
 %% ANALYSIS PARAMETERS
@@ -92,20 +70,20 @@ for s=1:numel(params.maze)
     end
 end
 
+
 for k=1:length(simData)
     fprintf('Simulation #%d\n',k);
-    % Identify candidate replay events
+    % Identify candidate replay events: timepoints in which the number of replayed states is greater than minFracCells,minNumCells
     candidateEvents = find(cellfun('length',simData(k).replay.state)>=max(sum(params.maze(:)==0)*minFracCells,minNumCells));
-    lapNum = [0;simData(k).numEpisodes(1:end-1)] + 1;
-    lapNum_events = lapNum(candidateEvents);
-    agentPos = simData(k).expList(candidateEvents,1);
-    rewRec = simData(k).expList(candidateEvents,3);
+    lapNum = [0;simData(k).numEpisodes(1:end-1)] + 1; % episode number for each time point
+    lapNum_events = lapNum(candidateEvents); % episode number for each candidate event
+    agentPos = simData(k).expList(candidateEvents,1); % agent position during each candidate event
+    
     for e=1:length(candidateEvents)
-        eventState = simData(k).replay.state{candidateEvents(e)};
-        eventAction = simData(k).replay.action{candidateEvents(e)};
+        eventState = simData(k).replay.state{candidateEvents(e)}; % In a multi-step sequence, simData.replay.state has 1->2 in one row, 2->3 in another row, etc
+        eventAction = simData(k).replay.action{candidateEvents(e)}; % In a multi-step sequence, simData.replay.action has the action taken at each step of the trajectory
         
-        % Identify break points in this event, separating event into
-        % sequences
+        % Identify break points in this event, separating event into sequences
         eventDir = cell(1,length(eventState)-1);
         breakPts = 0; % Save breakpoints that divide contiguous replay events
         for i=1:(length(eventState)-1)
@@ -119,15 +97,15 @@ for k=1:length(simData)
             end
             
             % Find if this is a break point
-            if isempty(eventDir{i})
-                breakPts = [breakPts (i-1)];
+            if isempty(eventDir{i}) % If this transition was neither forward nor backward
+                breakPts = [breakPts (i-1)]; % Then, call this a breakpoint
             elseif i>1
-                if ~strcmp(eventDir{i},eventDir{i-1})
-                    breakPts = [breakPts (i-1)];
+                if ~strcmp(eventDir{i},eventDir{i-1}) % If this transition was forward and the previous was backwards (or vice-versa)
+                    breakPts = [breakPts (i-1)]; % Then, call this a breakpoint
                 end
             end
             if i==(length(eventState)-1)
-                breakPts = [breakPts i];
+                breakPts = [breakPts i]; % Add a breakpoint after the last transition
             end
         end
         
@@ -136,16 +114,16 @@ for k=1:length(simData)
             thisChunk = (breakPts(j)+1):(breakPts(j+1));
             if (length(thisChunk)+1) >= minNumCells
                 % Extract information from this sequential event
-                replayDir = eventDir(thisChunk);
-                replayState = eventState([thisChunk (thisChunk(end)+1)]);
-                replayAction = eventAction([thisChunk (thisChunk(end)+1)]);
+                replayDir = eventDir(thisChunk); % Direction of transition
+                replayState = eventState([thisChunk (thisChunk(end)+1)]); % Start state
+                replayAction = eventAction([thisChunk (thisChunk(end)+1)]); % Action
                 
                 % Assess the significance of this event
                 %allPerms = cell2mat(arrayfun(@(x)randperm(length(replayState)),(1:nPerm)','UniformOutput',0));
                 sigBool = true; %#ok<NASGU>
                 if runPermAnalysis
-                    fracFor = nanmean(strcmp(replayDir,'F'));
-                    fracRev = nanmean(strcmp(replayDir,'R'));
+                    fracFor = nanmean(strcmp(replayDir,'F')); % Fraction of transitions in this chunk whose direction was forward
+                    fracRev = nanmean(strcmp(replayDir,'R')); % Fraction of transitions in this chunk whose direction was reverse
                     disScore = fracFor-fracRev;
                     dirScore_perm = nan(1,nPerm);
                     for p=1:nPerm
@@ -178,18 +156,18 @@ for k=1:length(simData)
                 % Add significant events to 'bucket'
                 if sigBool
                     reward_tsi = ismember(simData(k).expList(1:candidateEvents(e),4),sub2ind(size(params.maze),params.s_end(:,1),params.s_end(:,2)));
-                    lastReward_tsi = find(reward_tsi,1,'last');
-                    lastReward_mag = simData(k).expList(lastReward_tsi,3);
+                    lastReward_tsi = find(reward_tsi,1,'last'); % reward_tsi identifies the timepoint corresponding to the last reward received (at or prior to the current chunk)
+                    lastReward_mag = simData(k).expList(lastReward_tsi,3); % lastReward_mag is the magnitude of the last reward received, prior to this chunk
                     if replayDir{1}=='F'
-                        if abs(lastReward_mag-1)<abs(lastReward_mag-4)
+                        if abs(lastReward_mag-params.rewMag(1))<abs(lastReward_mag-params.rewMag(2)) % If this reward is closer to 1 than it is to 4
                             forwardCount_baseline(k,agentPos(e)) = forwardCount_baseline(k,agentPos(e)) + 1;
-                        else
+                        else % If this reward is closer to 4 than it is to 1
                             forwardCount_rewShift(k,agentPos(e)) = forwardCount_rewShift(k,agentPos(e)) + 1;
                         end
                     elseif replayDir{1}=='R'
-                        if abs(lastReward_mag-1)<abs(lastReward_mag-4)
+                        if abs(lastReward_mag-params.rewMag(1))<abs(lastReward_mag-params.rewMag(2)) % If this reward is closer to 1 than it is to 4
                             reverseCount_baseline(k,agentPos(e)) = reverseCount_baseline(k,agentPos(e)) + 1;
-                        else
+                        else % If this reward is closer to 4 than it is to 1
                             reverseCount_rewShift(k,agentPos(e)) = reverseCount_rewShift(k,agentPos(e)) + 1;
                         end
                     end
@@ -199,15 +177,17 @@ for k=1:length(simData)
     end
 end
 
-preplayF_baseline = nansum([forwardCount_baseline(:,1),forwardCount_baseline(:,30)],2) ./ ((1-params.probNoReward)*params.MAX_N_EPISODES);
-replayF_baseline = nansum([forwardCount_baseline(:,6),forwardCount_baseline(:,25)],2) ./ ((1-params.probNoReward)*params.MAX_N_EPISODES);
-preplayR_baseline = nansum([reverseCount_baseline(:,1),reverseCount_baseline(:,30)],2) ./ ((1-params.probNoReward)*params.MAX_N_EPISODES);
-replayR_baseline = nansum([reverseCount_baseline(:,6),reverseCount_baseline(:,25)],2) ./ ((1-params.probNoReward)*params.MAX_N_EPISODES);
+numEpisodes_baseline = params.MAX_N_EPISODES*params.rewProb(1);
+numEpisodes_rewShift = params.MAX_N_EPISODES*params.rewProb(2);
+preplayF_baseline = nansum([forwardCount_baseline(:,1),forwardCount_baseline(:,30)],2) ./ numEpisodes_baseline;
+replayF_baseline = nansum([forwardCount_baseline(:,6),forwardCount_baseline(:,25)],2) ./ numEpisodes_baseline;
+preplayR_baseline = nansum([reverseCount_baseline(:,1),reverseCount_baseline(:,30)],2) ./ numEpisodes_baseline;
+replayR_baseline = nansum([reverseCount_baseline(:,6),reverseCount_baseline(:,25)],2) ./ numEpisodes_baseline;
 
-preplayF_rewShift = nansum([forwardCount_rewShift(:,1),forwardCount_rewShift(:,30)],2) ./ (params.probNoReward*params.MAX_N_EPISODES);
-replayF_rewShift = nansum([forwardCount_rewShift(:,6),forwardCount_rewShift(:,25)],2) ./ (params.probNoReward*params.MAX_N_EPISODES);
-preplayR_rewShift = nansum([reverseCount_rewShift(:,1),reverseCount_rewShift(:,30)],2) ./ (params.probNoReward*params.MAX_N_EPISODES);
-replayR_rewShift = nansum([reverseCount_rewShift(:,6),reverseCount_rewShift(:,25)],2) ./ (params.probNoReward*params.MAX_N_EPISODES);
+preplayF_rewShift = nansum([forwardCount_rewShift(:,1),forwardCount_rewShift(:,30)],2) ./ numEpisodes_rewShift;
+replayF_rewShift = nansum([forwardCount_rewShift(:,6),forwardCount_rewShift(:,25)],2) ./ numEpisodes_rewShift;
+preplayR_rewShift = nansum([reverseCount_rewShift(:,1),reverseCount_rewShift(:,30)],2) ./ numEpisodes_rewShift;
+replayR_rewShift = nansum([reverseCount_rewShift(:,6),reverseCount_rewShift(:,25)],2) ./ numEpisodes_rewShift;
 
 
 %% PLOT
@@ -281,6 +261,7 @@ figure(2); clf;
 subplot(2,2,1);
 f1 = bar([F_1x1x F_1x4x]);
 ylim([-1000 2000]);
+ylabel('Simulation')
 grid on
 title('Forward replay');
 subplot(2,2,2);
@@ -292,6 +273,7 @@ title('Reverse replay');
 subplot(2,2,3);
 f1 = bar([-11 -3]);
 ylim([-100 200]);
+ylabel('Ambrose et al (2016)')
 grid on
 title('Forward replay');
 subplot(2,2,4);
@@ -300,6 +282,22 @@ ylim([-100 200]);
 grid on
 title('Reverse replay');
 set(gcf,'Position',[463   342   918   504])
+
+
+%% Changes in forward and reverse replay
+figure(3); clf;
+deltaF_baseline = [F_orig F_baseline];
+deltaF_rewShift = [F_orig F_rewShift];
+deltaR_baseline = [R_orig R_baseline];
+deltaR_rewShift = [R_orig R_rewShift];
+
+f1=bar([R_orig R_baseline R_rewShift]);
+f1.FaceColor=[1 1 1];
+f1.LineWidth=1;
+set(f1(1).Parent,'XTickLabel',{'1x/1x','1x','4x'});
+ylim([0 1]);
+ylabel('Events/Lap');
+grid on
 
 
 %% EXPORT FIGURE

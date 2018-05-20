@@ -1,42 +1,35 @@
-load_existing_data = false;
+load_existing_data = true;
 addpath('../../../');
 
 if load_existing_data
-    load('../../Figure2_Forward_vs_Reverse/Code/genFig_FvsR_linearTrack.mat','simData','params')
+    %load('../../Figure3_FvsR_balance/Code/genFig_FvsR_linearTrack.mat','simData','params')
 else
     %% STATE-SPACE PARAMETERS
     setParams;
     params.maze             = zeros(3,10); % zeros correspond to 'visitable' states
     params.maze(2,:)        = 1; % wall
-    params.s_end            = [1,size(params.maze,2);3,1]; % goal state (in matrix notation)
     params.s_start          = [1,1;3,size(params.maze,2)]; % beginning state (in matrix notation)
     params.s_start_rand     = false; % Start at random locations after reaching goal
     
+    params.s_end            = [1,size(params.maze,2);3,1]; % goal state (in matrix notation)
+    params.rewMag           = 1; % reward magnitude (rows: locations; columns: values)
+    params.rewSTD           = 0.1; % reward Gaussian noise (rows: locations; columns: values)
+    params.rewProb          = 1; % probability of receiving each reward (columns: values)
+    
     %% OVERWRITE PARAMETERS
-    params.N_SIMULATIONS    = 10000; % number of times to run the simulation
+    params.N_SIMULATIONS    = 10; % number of times to run the simulation
     params.MAX_N_STEPS      = 1e5; % maximum number of steps to simulate
-    params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max) -> Choose between 20 and 100
-    params.nPlan            = 10; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)
+    params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max)
+    params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)
+    params.onVSoffPolicy    = 'off-policy'; % Choose 'off-policy' (default, learns Q*) or 'on-policy' (learns Qpi) learning for updating Q-values and computing gain
     
-    params.setAllGainToOne  = false; % Set the gain term of all items to one (for illustration purposes)
-    params.setAllNeedToOne  = false; % Set the need term of all items to one (for illustration purposes)
-    params.rewSTD           = 0.1; % reward standard deviation (can be a vector -- e.g. [1 0.1])
-    params.softmaxT         = 0.2; % soft-max temperature -> higher means more exploration and, therefore, more reverse replay
-    params.gamma            = 0.90; % discount factor
-    params.TLearnRate       = 0.9; % learning rate for the transition matrix (0=uniform; 1=only last)
-    
-    params.updIntermStates  = true; % Update intermediate states when performing n-step backup
-    params.baselineGain     = 1e-10; % Gain is set to at least this value (interpreted as "information gain") -> Use 1e-3 if LR=0.8
-    
-    params.alpha            = 1.0; % learning rate for real experience (non-bayesian)
-    params.copyQinPlanBkps  = false; % Copy the Q-value (mean and variance) on planning backups (i.e., LR=1.0)
-    params.copyQinGainCalc  = true; % Copy the Q-value (mean and variance) on gain calculation (i.e., LR=1.0)
-    
-    params.PLOT_STEPS       = false; % Plot each step of real experience
-    params.PLOT_Qvals       = false; % Plot Q-values
-    params.PLOT_PLANS       = false; % Plot each planning step
-    params.PLOT_EVM         = false; % Plot need and gain
-    params.PLOT_wait        = 1 ; % Number of full episodes completed before plotting
+    params.alpha            = 1.0; % learning rate
+    params.gamma            = 0.9; % discount factor
+    params.softmaxInvT      = 5; % soft-max inverse temperature temperature
+    params.tieBreak         = 'min'; % How to break ties on EVM (choose which sequence length is prioritized: 'min', 'max', or 'rand')
+    params.setAllGainToOne  = false; % Set the gain term of all items to one (for debugging purposes)
+    params.setAllNeedToOne  = false; % Set the need term of all items to one (for debugging purposes)
+    params.setAllNeedToZero = false; % Set the need term of all items to zero, except for the current state (for debugging purposes)
     
     rng(mean('replay'));
     for k=1:params.N_SIMULATIONS

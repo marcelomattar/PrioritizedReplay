@@ -1,5 +1,5 @@
 function [rew,stp1,stp1i] = stNac2stp1Nr(st,at,params)
-% STNAC2STP1 - state and action to state plus one and reward 
+% STNAC2STP1 - state and action to next state and reward 
 
 % Dimensions of the maze
 [sideII,sideJJ] = size(params.maze);
@@ -9,27 +9,19 @@ ii = st(1); jj = st(2);
 
 %% MOVE THE AGENT TO THE NEXT POSITION
 
-% incorporate any actions and fix our position if we end up outside the grid:
+% incorporate any actions and fix our position if we end up outside the grid
 switch at
  case 1
-	%
 	% action = UP 
-	%
 	stp1 = [ii-1,jj];
  case 2
-	%
 	% action = DOWN
-	%
 	stp1 = [ii+1,jj];
  case 3
-	%
 	% action = RIGHT
-	%
 	stp1 = [ii,jj+1];
  case 4
-	%
 	% action = LEFT 
-	%
 	stp1 = [ii,jj-1];
  otherwise
 	error(sprintf('unknown value for of action = %d',at));  %#ok<SPERR>

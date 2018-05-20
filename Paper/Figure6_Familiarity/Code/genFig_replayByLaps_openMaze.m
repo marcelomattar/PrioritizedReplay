@@ -1,35 +1,34 @@
-load_existing_data = false;
+load_existing_data = true;
 addpath('../../../');
 
 if load_existing_data
-    load('../../Figure3_FvsR_balance/Code/genFig_FvsR_linearTrack.mat','simData','params')
+    load('../../Figure3_FvsR_balance/Code/genFig_FvsR_openMaze.mat','simData','params')
 else
     %% STATE-SPACE PARAMETERS
     setParams;
-    params.maze             = zeros(3,10); % zeros correspond to 'visitable' states
-    params.maze(2,:)        = 1; % wall
-    params.s_end            = [1,size(params.maze,2);3,1]; % goal state (in matrix notation)
-    params.s_start          = [1,1;3,size(params.maze,2)]; % beginning state (in matrix notation)
-    params.s_start_rand     = false; % Start at random locations after reaching goal
+    params.maze             = zeros(6,9); % zeros correspond to 'visitable' states
+    params.maze(2:4,3)      = 1; % wall
+    params.maze(1:3,8)      = 1; % wall
+    params.maze(5,6)        = 1; % wall
+    %params.s_end            = [1,9;6,9]; % goal state (in matrix notation)
+    params.s_end            = [1,9]; % goal state (in matrix notation)
+    params.s_start          = [3,1]; % beginning state (in matrix notation)
+    params.s_start_rand     = true; % Start at random locations after reaching goal
     
     %% OVERWRITE PARAMETERS
-    params.N_SIMULATIONS    = 10000; % number of times to run the simulation
+    params.N_SIMULATIONS    = 1000; % number of times to run the simulation
     params.MAX_N_STEPS      = 1e5; % maximum number of steps to simulate
-    params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max) -> Choose between 20 and 100
+    params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max)
     params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)
+    params.onVSoffPolicy    = 'off-policy'; % Choose 'off-policy' (default, learns Q*) or 'on-policy' (learns Qpi) learning for updating Q-values and computing gain
     
-    params.setAllGainToOne  = false; % Set the gain term of all items to one (for illustration purposes)
-    params.setAllNeedToOne  = false; % Set the need term of all items to one (for illustration purposes)
-    params.rewSTD           = 0.1; % reward standard deviation (can be a vector -- e.g. [1 0.1])
-    params.softmaxT         = 0.2; % soft-max temperature -> higher means more exploration and, therefore, more reverse replay
-    params.gamma            = 0.90; % discount factor
-    
-    params.updIntermStates  = true; % Update intermediate states when performing n-step backup
-    params.baselineGain     = 1e-10; % Gain is set to at least this value (interpreted as "information gain") -> Use 1e-3 if LR=0.8
-    
-    params.alpha            = 1.0; % learning rate for real experience (non-bayesian)
-    params.copyQinPlanBkps  = false; % Copy the Q-value (mean and variance) on planning backups (i.e., LR=1.0)
-    params.copyQinGainCalc  = true; % Copy the Q-value (mean and variance) on gain calculation (i.e., LR=1.0)
+    params.alpha            = 1.0; % learning rate
+    params.gamma            = 0.9; % discount factor
+    params.softmaxInvT      = 5; % soft-max inverse temperature temperature
+    params.tieBreak         = 'min'; % How to break ties on EVM (choose which sequence length is prioritized: 'min', 'max', or 'rand')
+    params.setAllGainToOne  = false; % Set the gain term of all items to one (for debugging purposes)
+    params.setAllNeedToOne  = false; % Set the need term of all items to one (for debugging purposes)
+    params.setAllNeedToZero = false; % Set the need term of all items to zero, except for the current state (for debugging purposes)
     
     rng(mean('replay'));
     for k=1:params.N_SIMULATIONS
@@ -112,28 +111,29 @@ for k=1:length(simData)
             if ~isempty(simData(k).replay.state{episode_tsis(t)})
                 N = histc(simData(k).replay.state{episode_tsis(t)},0.5:1:(numel(params.maze)+0.5));
                 actCount_byEpisode(e,:) = actCount_byEpisode(e,:) + N(1:(end-1)); % cumulative sum across timepoints in this episode
-                gainList_byEpisode = [gainList_byEpisode;simData(k).replay.gain{episode_tsis(t)}'];
-                needList_byEpisode = [needList_byEpisode;simData(k).replay.need{episode_tsis(t)}'];
+                gainList_byEpisode = [gainList_byEpisode;simData(k).replay.gain{episode_tsis(t)}];
+                needList_byEpisode = [needList_byEpisode;simData(k).replay.need{episode_tsis(t)}];
             end
         end
-        avGain_byEpisode(e,k) = nanmean(gainList_byEpisode);
-        avNeed_byEpisode(e,k) = nanmean(needList_byEpisode);
+        %avGain_byEpisode(e,k) = nanmean(gainList_byEpisode);
+        avGain_byEpisode(e,k) = nanmean(cellfun(@sum,gainList_byEpisode));
+        %avNeed_byEpisode(e,k) = nanmean(needList_byEpisode);
+        avNeed_byEpisode(e,k) = nanmean(cellfun(@(v) v(end), needList_byEpisode));
     end
     actProb_byEpisode(:,:,k) = (actCount_byEpisode>0)';
     
     
-    % Identify candidate replay events
+    % Identify candidate replay events: timepoints in which the number of replayed states is greater than minFracCells,minNumCells
     candidateEvents = find(cellfun('length',simData(k).replay.state)>=max(sum(params.maze(:)==0)*minFracCells,minNumCells));
-    lapNum = [0;simData(k).numEpisodes(1:end-1)] + 1;
-    lapNum_events = lapNum(candidateEvents);
-    agentPos = simData(k).expList(candidateEvents,1);
+    lapNum = [0;simData(k).numEpisodes(1:end-1)] + 1; % episode number for each time point
+    lapNum_events = lapNum(candidateEvents); % episode number for each candidate event
+    agentPos = simData(k).expList(candidateEvents,1); % agent position during each candidate event
     
     for e=1:length(candidateEvents)
-        eventState = simData(k).replay.state{candidateEvents(e)};
-        eventAction = simData(k).replay.action{candidateEvents(e)};
+        eventState = simData(k).replay.state{candidateEvents(e)}; % In a multi-step sequence, simData.replay.state has 1->2 in one row, 2->3 in another row, etc
+        eventAction = simData(k).replay.action{candidateEvents(e)}; % In a multi-step sequence, simData.replay.action has the action taken at each step of the trajectory
         
-        % Identify break points in this event, separating event into
-        % sequences
+        % Identify break points in this event, separating event into sequences
         eventDir = cell(1,length(eventState)-1);
         breakPts = 0; % Save breakpoints that divide contiguous replay events
         for i=1:(length(eventState)-1)
@@ -147,15 +147,15 @@ for k=1:length(simData)
             end
             
             % Find if this is a break point
-            if isempty(eventDir{i})
-                breakPts = [breakPts (i-1)];
+            if isempty(eventDir{i}) % If this transition was neither forward nor backward
+                breakPts = [breakPts (i-1)]; % Then, call this a breakpoint
             elseif i>1
-                if ~strcmp(eventDir{i},eventDir{i-1})
-                    breakPts = [breakPts (i-1)];
+                if ~strcmp(eventDir{i},eventDir{i-1}) % If this transition was forward and the previous was backwards (or vice-versa)
+                    breakPts = [breakPts (i-1)]; % Then, call this a breakpoint
                 end
             end
             if i==(length(eventState)-1)
-                breakPts = [breakPts i];
+                breakPts = [breakPts i]; % Add a breakpoint after the last transition
             end
         end
         
@@ -174,8 +174,8 @@ for k=1:length(simData)
                 %allPerms = cell2mat(arrayfun(@(x)randperm(length(replayState)),(1:nPerm)','UniformOutput',0));
                 sigBool = true; %#ok<NASGU>
                 if runPermAnalysis
-                    fracFor = nanmean(strcmp(replayDir,'F'));
-                    fracRev = nanmean(strcmp(replayDir,'R'));
+                    fracFor = nanmean(strcmp(replayDir,'F')); % Fraction of transitions in this chunk whose direction was forward
+                    fracRev = nanmean(strcmp(replayDir,'R')); % Fraction of transitions in this chunk whose direction was reverse
                     disScore = fracFor-fracRev;
                     dirScore_perm = nan(1,nPerm);
                     for p=1:nPerm
@@ -209,22 +209,22 @@ for k=1:length(simData)
                 if sigBool
                     N = histc(replayState,0.5:1:(numel(params.maze)+0.5));
                     actCount_byReplay{lapNum_events(e),k} = [actCount_byReplay{lapNum_events(e),k} ; N(1:(end-1))];
-                    gain_byReplay{lapNum_events(e),k} = [gain_byReplay{lapNum_events(e),k} ; replayGain'];
-                    need_byReplay{lapNum_events(e),k} = [need_byReplay{lapNum_events(e),k} ; replayNeed'];
+                    gain_byReplay{lapNum_events(e),k} = [gain_byReplay{lapNum_events(e),k} ; cellfun(@sum,replayGain)];
+                    need_byReplay{lapNum_events(e),k} = [need_byReplay{lapNum_events(e),k} ; cellfun(@(v) v(end), replayNeed)];
                     
                     if replayDir{1}=='F'
                         forwardCount(k,lapNum_events(e)) = forwardCount(k,lapNum_events(e)) + 1;
                         dirScoreForward(k,lapNum_events(e)) = dirScoreForward(k,lapNum_events(e)) + disScore;
                         actCount_byReplay_forward{lapNum_events(e),k} = [actCount_byReplay_forward{lapNum_events(e),k} ; N(1:(end-1))];
-                        gain_byReplay_forward{lapNum_events(e),k} = [gain_byReplay_forward{lapNum_events(e),k} ; replayGain'];
-                        need_byReplay_forward{lapNum_events(e),k} = [need_byReplay_forward{lapNum_events(e),k} ; replayNeed'];
+                        gain_byReplay_forward{lapNum_events(e),k} = [gain_byReplay_forward{lapNum_events(e),k} ; cellfun(@sum,replayGain)];
+                        need_byReplay_forward{lapNum_events(e),k} = [need_byReplay_forward{lapNum_events(e),k} ; cellfun(@(v) v(end), replayNeed)];
                         
                     elseif replayDir{1}=='R'
                         reverseCount(k,lapNum_events(e)) = reverseCount(k,lapNum_events(e)) + 1;
                         dirScoreReverse(k,lapNum_events(e)) = dirScoreReverse(k,lapNum_events(e)) + disScore;
                         actCount_byReplay_reverse{lapNum_events(e),k} = [actCount_byReplay_reverse{lapNum_events(e),k} ; N(1:(end-1))];
-                        gain_byReplay_reverse{lapNum_events(e),k} = [gain_byReplay_reverse{lapNum_events(e),k} ; replayGain'];
-                        need_byReplay_reverse{lapNum_events(e),k} = [need_byReplay_reverse{lapNum_events(e),k} ; replayNeed'];
+                        gain_byReplay_reverse{lapNum_events(e),k} = [gain_byReplay_reverse{lapNum_events(e),k} ; cellfun(@sum,replayGain)];
+                        need_byReplay_reverse{lapNum_events(e),k} = [need_byReplay_reverse{lapNum_events(e),k} ; cellfun(@(v) v(end), replayNeed)];
                     end
                 end
             end
@@ -343,10 +343,9 @@ set(gcf,'Position',[964   244   748   503])
 
 
 % 3. Gain and Need
-
-episodes2plot = 6:50;
+episodes2plot = 1:50;
 figure(3); clf;
-avGain_byEpisode(avGain_byEpisode<(10*params.minGain))=nan;
+%avGain_byEpisode(avGain_byEpisode<(10*params.minGain))=nan;
 
 subplot(4,2,1);
 h=plot(episodes2plot,nanmean(avGain_byEpisode(episodes2plot,:),2));
@@ -410,7 +409,7 @@ set(gcf,'Position',[968         118         748        1022])
 
 %% EXPORT FIGURE
 if saveBool
-    save genFig_replayByLaps_linearTrack.mat
+    save genFig_replayByLaps_openMaze.mat
 
     fh=findall(0,'type','figure');
     for i=1:numel(fh)

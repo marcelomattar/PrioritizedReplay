@@ -21,11 +21,16 @@ expLast_stp1 = nan(nStates,nActions); % <- next state
 expLast_rew = nan(nStates,nActions); % <- next reward
 numEpisodes = 0; % <- keep track of how many times we reach the end of our maze
 lastsize = 0; % Length of progress counter displayed on each iteration of the simulation
+ets = []; ts = 0; % keep track of how many timestep we take per episode
 
 simData.expList = nan(0,4);
 simData.replay.state = cell(params.MAX_N_STEPS,1);
 simData.replay.action = cell(params.MAX_N_STEPS,1);
 simData.numEpisodes = nan(params.MAX_N_STEPS,1);
+
+simData.replay.gain = cell(params.MAX_N_STEPS,1);
+simData.replay.need = cell(params.MAX_N_STEPS,1);
+simData.replay.EVM = cell(params.MAX_N_STEPS,1);
 
 %{
 ???: Do I need these or not?
@@ -38,9 +43,6 @@ cr = zeros(1,params.MAX_N_STEPS+1); cr(1) = 0;
 % Preallocate output variables
 simData.Q = cell(params.MAX_N_STEPS,1);
 simData.T = cell(params.MAX_N_STEPS,1);
-simData.replay.gain = cell(params.MAX_N_STEPS,1);
-simData.replay.need = cell(params.MAX_N_STEPS,1);
-simData.replay.EVM = cell(params.MAX_N_STEPS,1);
 simData.replay.backupsQvals = cell(params.MAX_N_STEPS,1);
 simData.replay.state = cell(params.MAX_N_STEPS,1);
 simData.replay.action = cell(params.MAX_N_STEPS,1);
@@ -144,13 +146,9 @@ for tsi=1:params.MAX_N_STEPS
     
     %% UPDATE Q-VALUES (LEARNING)
     if strcmp(params.onVSoffPolicy,'on-policy')
-        stp1Value = sum(Q(stp1i,:) .* pAct(Q(stp1i,:),params.actPolicy,params)); % Expected SARSA
-        %???: Standard SARSA
-        %probs = pAct(Q(stp1i,:),params.actPolicy,params); % Probability of executing each action
-        %at = find(rand > [0 cumsum(probs)],1,'last'); % Select an action
-        %stp1Value = Q(stp1i,at);
+        stp1Value = sum(Q(stp1i,:) .* pAct(Q(stp1i,:),params.actPolicy,params)); % Expected SARSA (learns Qpi)
     else
-        stp1Value = max(Q(stp1i,:)); % Q-learning
+        stp1Value = max(Q(stp1i,:)); % Q-learning (learns Q*)
     end
     delta = ( rew + params.gamma*stp1Value - Q(sti,at) ); % Prediction error (Q-learning)
     eTr(sti,at) = 1; eTr(sti,~ismember(1:nActions,at)) = 0; % Update eligibility trace using replacing traces, http://www.incompleteideas.net/book/ebook/node80.html)
@@ -173,15 +171,9 @@ for tsi=1:params.MAX_N_STEPS
     
     % Pre-allocate variables to store planning info
     planning_backups = nan(0,5); % List of planning backups (to be used for creating a plot with the full planning trajectory/trace)
-    %{
-    ???: Do I need these or not?
-    backupsGain = nan(0,1); % List of GAIN for backups executed
-    backupsNeed = nan(0,1); % List of NEED for backups executed
+    backupsGain = cell(0,1); % List of GAIN for backups executed
+    backupsNeed = cell(0,1); % List of NEED for backups executed
     backupsEVM = nan(0,1); % List of EVM for backups executed
-    backupsSAGain = nan(0,0); % List of gain terms for all actions at each replay step
-    backupsQvals = nan(0,1); % Q-values at completion of each replay step
-    backups_gainNstep = nan(0,2); % gain term for n-step backups
-    %}
     
     
     %% PLANNING STEPS
@@ -229,6 +221,13 @@ for tsi=1:params.MAX_N_STEPS
         [need,SR_or_SD] = needTerm(sti,T,planExp,params);
         if params.setAllNeedToOne
             need = num2cell(ones(numel(planExp),1));
+        end
+        if params.setAllNeedToZero
+            for e=1:numel(planExp)
+                need{e}(:) = 0;
+                need{e}(planExp{e}(:,1)==sti) = 1; % Set need to 1 only if updated state is sti
+            end
+            SR_or_SD = zeros(size(SR_or_SD)); SR_or_SD(sti) = 1;
         end
         
         % Expected value of memories
@@ -293,15 +292,11 @@ for tsi=1:params.MAX_N_STEPS
                 stp1_plan = planExp{maxEVM_idx}(end,4); % Notice the use of 'end' instead of 'n', meaning that stp1_plan is the final state of the trajectory
                 rewToEnd = planExp{maxEVM_idx}(n:end,3); % Individual rewards from this step to end of trajectory
                 r_plan = (params.gamma.^(0:(length(rewToEnd)-1))) * rewToEnd; % Discounted cumulative reward from this step to end of trajectory
-                n_plan = length(rewToEnd);        
+                n_plan = length(rewToEnd);
                 if strcmp(params.onVSoffPolicy,'on-policy')
-                    stp1Value = sum(Q(stp1_plan,:) .* pAct(Q(stp1_plan,:),params.planPolicy,params)); % Expected SARSA(lambda=1), or n-step Expected SARSA
-                    %???: Standard SARSA
-                    %probs = pAct(Q(stp1_plan,:),params.planPolicy,params); % Probability of executing each action
-                    %at = find(rand > [0 cumsum(probs)],1,'last'); % Select an action
-                    %stp1Value = Q(stp1_plan,at);
+                    stp1Value = sum(Q(stp1_plan,:) .* pAct(Q(stp1_plan,:),params.planPolicy,params)); % Learns Qpi -> Expected SARSA(1), or, equivalently, n-step Expected SARSA
                 else
-                    stp1Value = max(Q(stp1_plan,:)); % "naive" Q(lambda=1)
+                    stp1Value = max(Q(stp1_plan,:)); % Learns Q* (can be thought of as 'on-policy' if the target policy is the optimal policy, since trajectory is sampled greedily)
                 end
                 Qtarget = r_plan + (params.gamma^n_plan)*stp1Value;
                 if params.copyQinPlanBkps
@@ -312,12 +307,10 @@ for tsi=1:params.MAX_N_STEPS
             end
             
              % List of planning backups (to be used in creating a plot with the full planning trajectory/trace)
-            %backupsGain = [backupsGain gain(maxEVM_idx)]; % List of GAIN for backups executed
-            %backupsNeed = [backupsNeed need(maxEVM_idx)]; % List of NEED for backups executed
-            %backupsEVM = [backupsEVM EVM(maxEVM_idx)]; % List of EVM for backups executed
-            %backupsQvals = [backupsQvals Q(:)]; % Existing Q-values upon completion of this step
-            %backupsSAGain = [backupsSAGain saGain(:)]; % List of gain terms for all actions at each replay step
-            planning_backups = [planning_backups; [planExp{maxEVM_idx}(end,1:4) size(planExp{maxEVM_idx},1)]];
+            backupsGain = [backupsGain; gain{maxEVM_idx}]; % List of GAIN for backups executed
+            backupsNeed = [backupsNeed; need{maxEVM_idx}]; % List of NEED for backups executed
+            backupsEVM = [backupsEVM; EVM(maxEVM_idx)]; % List of EVM for backups executed
+            planning_backups = [planning_backups; [planExp{maxEVM_idx}(end,1:4) size(planExp{maxEVM_idx},1)]]; % Notice that the first column of planning_backups corresponds to the start state of the final transition on a multistep sequence
             p = p + 1; % Increment planning counter
         else
             break
@@ -330,6 +323,7 @@ for tsi=1:params.MAX_N_STEPS
     
     
     %% COMPLETE STEP
+    ts = ts+1; % Timesteps to solution (reset to zero at the end of the episode)
     if ismember(st,params.s_end,'rows') % Agent is at a terminal state
         if params.s_start_rand
             % Pick next start state at random
@@ -351,20 +345,22 @@ for tsi=1:params.MAX_N_STEPS
             expList(size(expList,1)+1,:) = [sti,nan,nan,stp1i]; % Update list of experiences
         end
         st = stp1; sti = stp1i; % Move the agent to the start location
-        
-        % Reset eligibility matrix
-        eTr = zeros(size(eTr));
-        % Record that we got to the end
-        numEpisodes = numEpisodes+1;
+        ets = [ets; ts]; ts = 0; %#ok<AGROW> % record that we took "ts" timesteps to get to the solution (end state)
+        eTr = zeros(size(eTr)); % Reset eligibility matrix
+        numEpisodes = numEpisodes+1; % Record that we got to the end
     end
     
     
     %% SAVE SIMULATION DATA
     simData.numEpisodes(tsi) = numEpisodes;
+    simData.stepsPerEpisode = ets;
     assert(size(simData.expList,1)==tsi,'expList has incorrect size')
-    if size(planning_backups,1)>0
-        simData.replay.state{tsi} = planning_backups(:,1)';
+    if size(planning_backups,1)>0 % If there was planning in this timestep
+        simData.replay.state{tsi} = planning_backups(:,1)'; % In a multi-step sequence, simData.replay.state has 1->2 in one row, 2->3 in another row, etc
         simData.replay.action{tsi} = planning_backups(:,2)';
+        simData.replay.gain{tsi} = backupsGain;
+        simData.replay.need{tsi} = backupsNeed;
+        simData.replay.EVM{tsi} = backupsEVM;
     end
     
     % If max number of episodes is reached, trim down simData.replay
@@ -372,6 +368,9 @@ for tsi=1:params.MAX_N_STEPS
         simData.numEpisodes = simData.numEpisodes(1:tsi);
         simData.replay.state = simData.replay.state(1:tsi);
         simData.replay.action = simData.replay.action(1:tsi);
+        simData.replay.gain = simData.replay.gain(1:tsi);
+        simData.replay.need = simData.replay.need(1:tsi);
+        simData.replay.EVM = simData.replay.EVM(1:tsi);
         fprintf(repmat('\b', 1, lastsize));
         fprintf('%d steps; %d episodes\n', tsi, numEpisodes);
         break

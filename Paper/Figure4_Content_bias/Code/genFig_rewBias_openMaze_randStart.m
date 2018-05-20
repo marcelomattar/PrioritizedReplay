@@ -2,7 +2,8 @@ load_existing_data = true;
 addpath('../../../');
 
 if load_existing_data
-    load('../../Figure2_Forward_vs_Reverse/Code/genFig_FvsR_openMaze.mat','simData','params')
+    %load('../../Figure3_FvsR_balance/Code/genFig_FvsR_openMaze.mat','simData','params')
+    %params.N_SIMULATIONS = 100;
 else
     %% STATE-SPACE PARAMETERS
     setParams;
@@ -10,29 +11,23 @@ else
     params.maze(2:4,3)      = 1; % wall
     params.maze(1:3,8)      = 1; % wall
     params.maze(5,6)        = 1; % wall
-    %params.s_end            = [1,9;6,9]; % goal state (in matrix notation)
-    params.s_end            = [1,9]; % goal state (in matrix notation)
     params.s_start          = [3,1]; % beginning state (in matrix notation)
     params.s_start_rand     = true; % Start at random locations after reaching goal
+    
+    params.s_end            = [1,9]; % goal state (in matrix notation)
+    params.rewMag           = 1; % reward magnitude (rows: locations; columns: values)
+    params.rewSTD           = 0.1; % reward Gaussian noise (rows: locations; columns: values)
+    params.rewProb          = 1; % probability of receiving each reward (columns: values)
     
     %% OVERWRITE PARAMETERS
     params.N_SIMULATIONS    = 100; % number of times to run the simulation
     params.MAX_N_STEPS      = 1e5; % maximum number of steps to simulate
-    params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max) -> Choose between 20 and 100
+    params.MAX_N_EPISODES   = 50; % maximum number of episodes to simulate (use Inf if no max)
     params.nPlan            = 20; % number of steps to do in planning (set to zero if no planning or to Inf to plan for as long as it is worth it)
-    
-    params.setAllGainToOne  = false; % Set the gain term of all items to one (for illustration purposes)
-    params.setAllNeedToOne  = false; % Set the need term of all items to one (for illustration purposes)
-    params.rewSTD           = 0.1; % reward standard deviation (can be a vector -- e.g. [1 0.1])
-    params.softmaxT         = 0.2; % soft-max temperature -> higher means more exploration and, therefore, more reverse replay
-    params.gamma            = 0.90; % discount factor
-    
-    params.updIntermStates  = true; % Update intermediate states when performing n-step backup
-    params.baselineGain     = 1e-10; % Gain is set to at least this value (interpreted as "information gain") -> Use 1e-3 if LR=0.8
-    
-    params.alpha            = 1.0; % learning rate for real experience (non-bayesian)
-    params.copyQinPlanBkps  = false; % Copy the Q-value (mean and variance) on planning backups (i.e., LR=1.0)
-    params.copyQinGainCalc  = true; % Copy the Q-value (mean and variance) on gain calculation (i.e., LR=1.0)
+    params.onVSoffPolicy    = 'off-policy'; % Choose 'off-policy' (default, learns Q*) or 'on-policy' (learns Qpi) learning for updating Q-values and computing gain
+    params.alpha            = 1.0; % learning rate
+    params.gamma            = 0.9; % discount factor
+    params.softmaxInvT      = 5; % soft-max inverse temperature temperature
 
     rng(mean('replay'));
     for k=1:params.N_SIMULATIONS
@@ -84,7 +79,7 @@ actProb_start_forward = zeros(numel(params.maze),params.N_SIMULATIONS);
 actProb_end_forward = zeros(numel(params.maze),params.N_SIMULATIONS);
 actProb_start_reverse = zeros(numel(params.maze),params.N_SIMULATIONS);
 actProb_end_reverse = zeros(numel(params.maze),params.N_SIMULATIONS);
-for k=1:length(simData)
+for k=1:params.N_SIMULATIONS
     fprintf('Simulation #%d\n',k);
     
     % Calculate the activation probability per episode
@@ -216,13 +211,17 @@ for k=1:length(simData)
                         actCount_byReplay_elsewhere = [actCount_byReplay_elsewhere ; (N(1:(end-1))>0)];
                     end
                     if replayDir{1}=='F'
+                        %if simData(k).numEpisodes(candidateEvents(e))<5
                         actCount_byReplay_forward = [actCount_byReplay_forward ; (N(1:(end-1))>0)];
                         actCount_start_forward(replayState(1)) = actCount_start_forward(replayState(1)) + 1;
                         actCount_end_forward(replayState(end)) = actCount_end_forward(replayState(end)) + 1;
+                        %end
                     elseif replayDir{1}=='R'
+                        %if simData(k).numEpisodes(candidateEvents(e))<5
                         actCount_byReplay_reverse = [actCount_byReplay_reverse ; (N(1:(end-1))>0)];
                         actCount_start_reverse(replayState(1)) = actCount_start_reverse(replayState(1)) + 1;
                         actCount_end_reverse(replayState(end)) = actCount_end_reverse(replayState(end)) + 1;
+                        %end
                     end
                     actCount_start(replayState(1)) = actCount_start(replayState(1)) + 1;
                     actCount_end(replayState(end)) = actCount_end(replayState(end)) + 1;
